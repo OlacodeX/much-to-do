@@ -165,3 +165,83 @@ The `INTEGRATION=true` environment variable is required to explicitly enable the
   ```
 
 Refer to the `Makefile` for more available commands.
+
+## Deployments
+
+Run everything from `Server/MuchToDo`:
+
+```bash
+cd much-to-do/Server/MuchToDo
+```
+
+You need **Docker Desktop**, **kind**, and **kubectl**. On Windows, run the scripts from **Git Bash** (or call them from PowerShell with Git Bash if `kind` is only on PATH there).
+
+### One-time setup
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`: set `JWT_SECRET_KEY` and `MONGO_URI` (for Compose, use the Docker service hostname `mongodb`):
+
+```env
+MONGO_URI=mongodb://root:example@mongodb:27017/much_todo_db?authSource=admin&replicaSet=rs0
+```
+
+Create the MongoDB keyfile for Compose:
+
+```bash
+openssl rand -base64 756 > mongodb.key
+chmod 400 mongodb.key
+```
+
+### Docker Compose
+
+```bash
+bash scripts/docker-run.sh
+```
+
+API: http://localhost:8080 — health check: http://localhost:8080/health — Swagger: http://localhost:8080/swagger/index.html
+
+Stop:
+
+```bash
+docker compose down
+```
+
+### Kubernetes (Kind)
+
+Stop Compose first so port 8080 is free, then run cleanup and deploy:
+
+```bash
+docker compose down
+bash scripts/k8s-cleanup.sh
+bash scripts/k8s-deploy.sh
+```
+
+The script creates cluster `muchtodo-cluster`, installs ingress-nginx, applies manifests under `kubernetes/`, builds the backend image, loads it into Kind, and checks health.
+
+API: http://localhost:8080/health
+
+Verify:
+
+```bash
+kubectl get pods -n muchtodo
+curl http://localhost:8080/health
+```
+
+Remove everything:
+
+```bash
+bash scripts/k8s-cleanup.sh
+```
+
+**Windows (PowerShell)** if `kind` is not in Git Bash PATH:
+
+```powershell
+cd Server\MuchToDo
+& "C:\Program Files\Git\bin\bash.exe" scripts/k8s-cleanup.sh
+& "C:\Program Files\Git\bin\bash.exe" scripts/k8s-deploy.sh
+```
+
+If deploy fails because an old cluster exists without the right port mapping, run `k8s-cleanup.sh` and `k8s-deploy.sh` again. If Docker cannot pull images (`registry-1.docker.io: no such host`), fix your network/DNS and restart Docker Desktop.
