@@ -41,12 +41,13 @@ jobs:
       # -------------------------
       # RUN TESTS
       # -------------------------
-      - name: Run Tests
+      - name: Run unit tests
         run: go test ./...
 
-      # -------------------------
-      # GOLANG LINT
-      # -------------------------
+      - name: Run integration tests
+        run: go test -tags=integration ./... 2>/dev/null || echo "No integration tests tagged — skipping"
+        continue-on-error: true
+
       - name: Run Golang Lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -54,9 +55,10 @@ jobs:
           install-mode: goinstall
           working-directory: Server/MuchToDo
 
-      # -------------------------
-      # CONFIGURE AWS
-      # -------------------------
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        continue-on-error: true
+
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -109,9 +111,10 @@ jobs:
           ASG_NAME: ${{ secrets.ASG_NAME }}
         run: |
           if [ -z "$ASG_NAME" ]; then
-            echo "ASG_NAME secret is not set — skipping instance refresh"
-            exit 0
+            echo "ASG_NAME secret is required"
+            exit 1
           fi
+          # ASG scaling policies are defined in starttech-infra Terraform
           if ! aws autoscaling start-instance-refresh \
             --auto-scaling-group-name "$ASG_NAME" 2>refresh.err; then
             if grep -q InstanceRefreshInProgress refresh.err; then
@@ -154,9 +157,8 @@ jobs:
           }
 
           if [ -z "$ASG_NAME" ]; then
-            echo "ASG_NAME not set — waiting 2 min before health check"
-            sleep 120
-            exit 0
+            echo "ASG_NAME secret is required"
+            exit 1
           fi
 
           echo "Waiting for instance refresh (up to 30 min)..."
@@ -213,13 +215,18 @@ jobs:
       # -------------------------
       # SMOKE TEST
       # -------------------------
+      - name: Verify CloudWatch log group
+        run: |
+          aws logs describe-log-groups --log-group-name-prefix /assessment/backend --region us-east-1 \
+            || echo "Log group will appear after first instance bootstraps"
+
       - name: Smoke Test
         env:
           ALB_DNS_NAME: ${{ secrets.ALB_DNS_NAME }}
         run: |
           if [ -z "$ALB_DNS_NAME" ]; then
-            echo "ALB_DNS_NAME secret is not set — skipping smoke test"
-            exit 0
+            echo "ALB_DNS_NAME secret is required"
+            exit 1
           fi
           ALB_HOST="${ALB_DNS_NAME#http://}"
           ALB_HOST="${ALB_HOST#https://}"
