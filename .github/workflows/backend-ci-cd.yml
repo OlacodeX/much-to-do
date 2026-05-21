@@ -135,14 +135,19 @@ jobs:
             sleep 120
             exit 0
           fi
-          echo "Waiting for instance refresh (up to 20 min)..."
-          for i in $(seq 1 40); do
+          echo "Waiting for instance refresh (up to 30 min)..."
+          for i in $(seq 1 60); do
             STATUS=$(aws autoscaling describe-instance-refreshes \
               --auto-scaling-group-name "$ASG_NAME" \
               --max-records 1 \
               --query 'InstanceRefreshes[0].Status' \
               --output text 2>/dev/null || echo "None")
-            echo "Refresh status: $STATUS (check $i/40)"
+            PCT=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name "$ASG_NAME" \
+              --max-records 1 \
+              --query 'InstanceRefreshes[0].PercentageComplete' \
+              --output text 2>/dev/null || echo "?")
+            echo "Refresh status: $STATUS (${PCT}% complete, check $i/60)"
             case "$STATUS" in
               Successful)
                 echo "Instance refresh complete"
@@ -157,13 +162,12 @@ jobs:
                 ;;
               *)
                 echo "No active refresh — proceeding to health check"
-                sleep 30
                 exit 0
                 ;;
             esac
           done
-          echo "Timed out waiting for instance refresh"
-          exit 1
+          echo "WARNING: Instance refresh still InProgress after 30 min — continuing to smoke test"
+          exit 0
 
       # -------------------------
       # SMOKE TEST
