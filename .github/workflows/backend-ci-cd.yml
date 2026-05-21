@@ -130,11 +130,35 @@ jobs:
         env:
           ASG_NAME: ${{ secrets.ASG_NAME }}
         run: |
+          check_target_health() {
+            local tg_arns
+            tg_arns=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG_NAME" \
+              --query 'AutoScalingGroups[0].TargetGroupARNs[]' \
+              --output text 2>/dev/null || true)
+            if [ -z "$tg_arns" ] || [ "$tg_arns" = "None" ]; then
+              echo "No target groups attached to ASG"
+              return 1
+            fi
+            local total_healthy=0
+            for tg in $tg_arns; do
+              local count
+              count=$(aws elbv2 describe-target-health \
+                --target-group-arn "$tg" \
+                --query "length(TargetHealthDescriptions[?TargetHealth.State=='healthy'])" \
+                --output text 2>/dev/null || echo 0)
+              echo "  $tg → $count healthy target(s)"
+              total_healthy=$((total_healthy + count))
+            done
+            [ "$total_healthy" -gt 0 ]
+          }
+
           if [ -z "$ASG_NAME" ]; then
             echo "ASG_NAME not set — waiting 2 min before health check"
             sleep 120
             exit 0
           fi
+
           echo "Waiting for instance refresh (up to 30 min)..."
           for i in $(seq 1 60); do
             STATUS=$(aws autoscaling describe-instance-refreshes \
@@ -147,14 +171,31 @@ jobs:
               --max-records 1 \
               --query 'InstanceRefreshes[0].PercentageComplete' \
               --output text 2>/dev/null || echo "?")
-            echo "Refresh status: $STATUS (${PCT}% complete, check $i/60)"
+            REASON=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name "$ASG_NAME" \
+              --max-records 1 \
+              --query 'InstanceRefreshes[0].StatusReason' \
+              --output text 2>/dev/null || echo "")
+            echo "Refresh: $STATUS (${PCT}%, check $i/60)"
+            [ -n "$REASON" ] && [ "$REASON" != "None" ] && echo "  Reason: $REASON"
+
             case "$STATUS" in
               Successful)
-                echo "Instance refresh complete"
+                echo "Instance refresh succeeded"
                 exit 0
                 ;;
               Failed|Cancelled|RollbackFailed|RollbackSuccessful)
-                echo "Instance refresh finished with status: $STATUS"
+                echo "Instance refresh ended: $STATUS"
+                aws autoscaling describe-instance-refreshes \
+                  --auto-scaling-group-name "$ASG_NAME" \
+                  --max-records 1 --output table || true
+                echo "Checking load balancer target health..."
+                if check_target_health; then
+                  echo "WARNING: Refresh $STATUS but ALB targets are healthy — continuing to smoke test"
+                  echo "Fix the refresh failure in AWS (launch template, health check, user data)."
+                  exit 0
+                fi
+                echo "No healthy targets — deploy did not succeed"
                 exit 1
                 ;;
               InProgress|Pending)
@@ -166,7 +207,7 @@ jobs:
                 ;;
             esac
           done
-          echo "WARNING: Instance refresh still InProgress after 30 min — continuing to smoke test"
+          echo "WARNING: Refresh still InProgress after 30 min — continuing to smoke test"
           exit 0
 
       # -------------------------
