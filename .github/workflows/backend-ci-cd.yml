@@ -48,7 +48,7 @@ jobs:
       # GOLANG LINT
       # -------------------------
       - name: Run Golang Lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           install-mode: goinstall
@@ -58,7 +58,7 @@ jobs:
       # CONFIGURE AWS
       # -------------------------
       - name: Configure AWS
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -68,7 +68,7 @@ jobs:
       # LOGIN TO ECR
       # -------------------------
       - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@v2.1.2
 
       # -------------------------
       # BUILD IMAGE
