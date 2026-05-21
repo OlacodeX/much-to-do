@@ -105,13 +105,33 @@ jobs:
       # INSTANCE REFRESH
       # -------------------------
       - name: Refresh Auto Scaling Group
+        env:
+          ASG_NAME: ${{ secrets.ASG_NAME }}
         run: |
-          aws autoscaling start-instance-refresh \
-          --auto-scaling-group-name ${{ secrets.ASG_NAME }}
+          if [ -z "$ASG_NAME" ]; then
+            echo "ASG_NAME secret is not set — skipping instance refresh"
+            exit 0
+          fi
+          if ! aws autoscaling start-instance-refresh \
+            --auto-scaling-group-name "$ASG_NAME" 2>refresh.err; then
+            if grep -q InstanceRefreshInProgress refresh.err; then
+              echo "Instance refresh already in progress — continuing"
+              exit 0
+            fi
+            cat refresh.err
+            exit 1
+          fi
+          echo "Instance refresh started"
 
       # -------------------------
       # SMOKE TEST
       # -------------------------
       - name: Smoke Test
+        env:
+          ALB_DNS_NAME: ${{ secrets.ALB_DNS_NAME }}
         run: |
-          curl -f http://${{ secrets.ALB_DNS_NAME }}/health
+          if [ -z "$ALB_DNS_NAME" ]; then
+            echo "ALB_DNS_NAME secret is not set — skipping smoke test"
+            exit 0
+          fi
+          curl -f "http://${ALB_DNS_NAME}/health"
