@@ -115,7 +115,9 @@ func (h *TodoHandler) GetAllTodos(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch todos"})
 		return
 	}
-	defer cursor.Close(context.Background())
+	defer func() {
+		_ = cursor.Close(context.Background())
+	}()
 
 	if err = cursor.All(context.Background(), &todos); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode todos"})

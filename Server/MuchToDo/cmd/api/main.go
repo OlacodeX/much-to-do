@@ -114,7 +114,11 @@ func preloadUsernamesIntoCache(db *mongo.Client, cacheSvc cache.Cache, cfg confi
 		slog.Error("Error querying for usernames to preload", slog.Any("error", err))
 		return
 	}
-	defer cursor.Close(ctx)
+	defer func() {
+		if err := cursor.Close(ctx); err != nil {
+			slog.Error("Error closing username preload cursor", slog.Any("error", err))
+		}
+	}()
 
 	// Use a map to prepare for batch cache insertion
 	usernamesToCache := make(map[string]interface{})
@@ -143,7 +147,9 @@ func preloadUsernamesIntoCache(db *mongo.Client, cacheSvc cache.Cache, cfg confi
 			slog.Error("Error preloading usernames to cache", slog.Any("error", err))
 		} else {
 			// Set the sentinel key to prevent re-loading until it expires.
-			cacheSvc.Set(ctx, usernameCacheSentinelKey, "true", usernameCacheTTL)
+			if err := cacheSvc.Set(ctx, usernameCacheSentinelKey, "true", usernameCacheTTL); err != nil {
+				slog.Error("Error setting username cache sentinel", slog.Any("error", err))
+			}
 			slog.Info("Successfully preloaded usernames into cache", "count", len(usernamesToCache))
 		}
 	} else {

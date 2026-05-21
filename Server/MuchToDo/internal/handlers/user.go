@@ -97,7 +97,9 @@ func (h *UserHandler) Register(c *gin.Context) {
 
 	// Username is now taken, so cache this information
 	usernameCacheKey := fmt.Sprintf("username-taken:%s", newUser.Username)
-	h.cache.Set(context.Background(), usernameCacheKey, true, 5*time.Minute)
+	if err := h.cache.Set(context.Background(), usernameCacheKey, true, 5*time.Minute); err != nil {
+		log.Printf("failed to cache username: %v", err)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
 }
@@ -434,7 +436,9 @@ func (h *UserHandler) CheckUsernameAvailability(c *gin.Context) {
 
 	if count > 0 {
 		// 3. Set cache for future requests
-		h.cache.Set(context.Background(), cacheKey, true, 24*time.Hour)
+		if err := h.cache.Set(context.Background(), cacheKey, true, 24*time.Hour); err != nil {
+			log.Printf("failed to cache username availability: %v", err)
+		}
 		c.JSON(http.StatusOK, gin.H{"available": false, "message": "Username not available"})
 		return
 	}
@@ -501,7 +505,11 @@ func (h *UserHandler) triggerRandomCacheRefresh() {
 				log.Printf("Error during cache refresh query: %v", err)
 				return
 			}
-			defer cursor.Close(ctx)
+			defer func() {
+				if err := cursor.Close(ctx); err != nil {
+					log.Printf("error closing cache refresh cursor: %v", err)
+				}
+			}()
 
 			usernamesToCache := make(map[string]interface{})
 			for cursor.Next(ctx) {
@@ -517,7 +525,9 @@ func (h *UserHandler) triggerRandomCacheRefresh() {
 			if len(usernamesToCache) > 0 {
 				err := h.cache.SetMany(ctx, usernamesToCache, 24*time.Hour)
 				if err == nil {
-					h.cache.Set(ctx, "username_cache_initialized", "true", 24*time.Hour)
+					if err := h.cache.Set(ctx, "username_cache_initialized", "true", 24*time.Hour); err != nil {
+						log.Printf("failed to set username cache sentinel: %v", err)
+					}
 					log.Printf("Successfully refreshed %d usernames in cache.", len(usernamesToCache))
 				}
 			}

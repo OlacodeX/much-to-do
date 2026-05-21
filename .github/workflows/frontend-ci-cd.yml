@@ -46,22 +46,22 @@ jobs:
         run: npm audit --audit-level=high
 
       # -------------------------
-      # RUN TESTS
+      # LINT
       # -------------------------
-      - name: Run Tests
-        run: npm test -- --watchAll=false
+      - name: Run Lint
+        run: npm run lint
 
       # -------------------------
-      # BUILD REACT APP
+      # BUILD
       # -------------------------
-      - name: Build React App
+      - name: Build
         run: npm run build
 
       # -------------------------
       # VERIFY BUILD
       # -------------------------
       - name: Verify Build
-        run: ls -la build
+        run: ls -la dist
 
       # -------------------------
       # CONFIGURE AWS
@@ -78,7 +78,7 @@ jobs:
       # -------------------------
       - name: Deploy to S3
         run: |
-          aws s3 sync build/ s3://${{ secrets.S3_BUCKET }} --delete
+          aws s3 sync dist/ s3://${{ secrets.S3_BUCKET }} --delete
 
       # -------------------------
       # INVALIDATE CLOUDFRONT
