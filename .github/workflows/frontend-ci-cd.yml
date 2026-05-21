@@ -1,0 +1,90 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches:
+      - feature/full-stack
+
+jobs:
+
+  frontend:
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Client
+
+    steps:
+
+      # -------------------------
+      # CHECKOUT CODE
+      # -------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # SETUP NODE
+      # -------------------------
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: Client/package-lock.json
+
+      # -------------------------
+      # INSTALL DEPENDENCIES
+      # -------------------------
+      - name: Install Dependencies
+        run: npm ci
+
+      # -------------------------
+      # SECURITY SCAN
+      # -------------------------
+      - name: Run Security Audit
+        run: npm audit --audit-level=high
+
+      # -------------------------
+      # RUN TESTS
+      # -------------------------
+      - name: Run Tests
+        run: npm test -- --watchAll=false
+
+      # -------------------------
+      # BUILD REACT APP
+      # -------------------------
+      - name: Build React App
+        run: npm run build
+
+      # -------------------------
+      # VERIFY BUILD
+      # -------------------------
+      - name: Verify Build
+        run: ls -la build
+
+      # -------------------------
+      # CONFIGURE AWS
+      # -------------------------
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # -------------------------
+      # DEPLOY TO S3
+      # -------------------------
+      - name: Deploy to S3
+        run: |
+          aws s3 sync build/ s3://${{ secrets.S3_BUCKET }} --delete
+
+      # -------------------------
+      # INVALIDATE CLOUDFRONT
+      # -------------------------
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+          --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+          --paths "/*"

@@ -3,30 +3,30 @@ services:
     image: mongo:8.0
     container_name: mongodb
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
       - "${MONGO_PORT:-27017}:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-root}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-example}
       MONGO_INITDB_DATABASE: ${DB_NAME:-much_todo_db}
-    # Use a command that sets permissions and then starts mongod
-    command:
-      [
-        "--replSet",
-        "rs0",
-        "--bind_ip_all",
-        "--keyFile",
-        "/data/keyfile/mongodb.key",
-      ]
-    # Create a keyfile and mount it to the container
-    # openssl rand -base64 756 > mongodb.key && chmod 400 mongodb.key
+    entrypoint:
+      - bash
+      - -c
+      - |
+        chmod 400 /data/keyfile/mongodb.key
+        chown mongodb:mongodb /data/keyfile/mongodb.key
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /data/keyfile/mongodb.key
     volumes:
       - mongo_data:/data/db
       - mongodb_config:/data/configdb
-      # Mount the keyfile to a standard config location
-      - ./mongodb.key:/data/keyfile/mongodb.key:ro
+      - ./mongodb.key:/data/keyfile/mongodb.key
     healthcheck:
-      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'${MONGO_HOST:-mongodb}:27017'}]}) }" | mongosh --port 27017 -u ${MONGO_INITDB_ROOT_USERNAME:-root} -p ${MONGO_INITDB_ROOT_PASSWORD:-example} --authenticationDatabase admin --quiet
+      test:
+        - CMD-SHELL
+        - >
+          echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'${MONGO_HOST:-mongodb}:27017'}]}) }" | mongosh --port 27017 -u ${MONGO_INITDB_ROOT_USERNAME:-root} -p ${MONGO_INITDB_ROOT_PASSWORD:-example} --authenticationDatabase admin --quiet || exit 1
       interval: 10s
       timeout: 10s
       retries: 5
@@ -40,16 +40,15 @@ services:
     image: mongo-express:1.0.2
     container_name: mongo-express
     restart: unless-stopped
+    env_file:
+      - .env
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     ports:
       - "8081:8081"
     environment:
-      # ME_CONFIG_MONGODB_SERVER: ${MONGO_HOST:-mongodb}
-      # ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:-root}
-      # ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-example}
-      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME:-root}:${MONGO_INITDB_ROOT_PASSWORD:-example}@mongodb:27017/?authSource=admin&replicaSet=rs0&directConnection=true
-
+      ME_CONFIG_MONGODB_URL: ${MONGO_URI}
       ME_CONFIG_BASICAUTH_USERNAME: ${ME_CONFIG_BASICAUTH_USERNAME:-admin}
       ME_CONFIG_BASICAUTH_PASSWORD: ${ME_CONFIG_BASICAUTH_PASSWORD:-admin123}
     networks:
@@ -60,8 +59,11 @@ services:
     container_name: redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
     volumes:
       - redis_data:/data
     networks:
@@ -76,7 +78,25 @@ services:
     ports:
       - "8082:8081"
     environment:
-      - REDIS_HOSTS=local:${REDIS_HOST:-redis}:${REDIS_PORT:-6379}
+      REDIS_HOSTS: "local:${REDIS_HOST:-redis}:6379"
+    networks:
+      - backend
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - backend
 

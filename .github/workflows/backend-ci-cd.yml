@@ -1,0 +1,115 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - feature/full-stack
+
+jobs:
+
+  backend:
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Server/MuchToDo
+
+    steps:
+
+      # -------------------------
+      # CHECKOUT CODE
+      # -------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # SETUP GO
+      # -------------------------
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      # -------------------------
+      # INSTALL DEPENDENCIES
+      # -------------------------
+      - name: Download Dependencies
+        run: go mod download
+
+      # -------------------------
+      # RUN TESTS
+      # -------------------------
+      - name: Run Tests
+        run: go test ./...
+
+      # -------------------------
+      # GOLANG LINT
+      # -------------------------
+      - name: Run Golang Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: Server/MuchToDo
+
+      # -------------------------
+      # CONFIGURE AWS
+      # -------------------------
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # -------------------------
+      # LOGIN TO ECR
+      # -------------------------
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # -------------------------
+      # BUILD IMAGE
+      # -------------------------
+      - name: Build Docker Image
+        run: docker build -t assessment-backend .
+
+      # -------------------------
+      # TAG IMAGE
+      # -------------------------
+      - name: Tag Docker Image
+        run: |
+          docker tag assessment-backend:latest \
+          ${{ secrets.ECR_REPOSITORY }}:latest
+
+      # -------------------------
+      # PUSH IMAGE
+      # -------------------------
+      - name: Push Docker Image
+        run: |
+          docker push ${{ secrets.ECR_REPOSITORY }}:latest
+
+      # -------------------------
+      # VULNERABILITY SCAN
+      # -------------------------
+      - name: Run Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.ECR_REPOSITORY }}:latest
+          format: table
+          exit-code: 0
+
+      # -------------------------
+      # INSTANCE REFRESH
+      # -------------------------
+      - name: Refresh Auto Scaling Group
+        run: |
+          aws autoscaling start-instance-refresh \
+          --auto-scaling-group-name ${{ secrets.ASG_NAME }}
+
+      # -------------------------
+      # SMOKE TEST
+      # -------------------------
+      - name: Smoke Test
+        run: |
+          curl -f http://${{ secrets.ALB_DNS_NAME }}/health
