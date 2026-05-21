@@ -124,6 +124,48 @@ jobs:
           echo "Instance refresh started"
 
       # -------------------------
+      # WAIT FOR DEPLOYMENT
+      # -------------------------
+      - name: Wait for deployment
+        env:
+          ASG_NAME: ${{ secrets.ASG_NAME }}
+        run: |
+          if [ -z "$ASG_NAME" ]; then
+            echo "ASG_NAME not set — waiting 2 min before health check"
+            sleep 120
+            exit 0
+          fi
+          echo "Waiting for instance refresh (up to 20 min)..."
+          for i in $(seq 1 40); do
+            STATUS=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name "$ASG_NAME" \
+              --max-records 1 \
+              --query 'InstanceRefreshes[0].Status' \
+              --output text 2>/dev/null || echo "None")
+            echo "Refresh status: $STATUS (check $i/40)"
+            case "$STATUS" in
+              Successful)
+                echo "Instance refresh complete"
+                exit 0
+                ;;
+              Failed|Cancelled|RollbackFailed|RollbackSuccessful)
+                echo "Instance refresh finished with status: $STATUS"
+                exit 1
+                ;;
+              InProgress|Pending)
+                sleep 30
+                ;;
+              *)
+                echo "No active refresh — proceeding to health check"
+                sleep 30
+                exit 0
+                ;;
+            esac
+          done
+          echo "Timed out waiting for instance refresh"
+          exit 1
+
+      # -------------------------
       # SMOKE TEST
       # -------------------------
       - name: Smoke Test
@@ -134,4 +176,19 @@ jobs:
             echo "ALB_DNS_NAME secret is not set — skipping smoke test"
             exit 0
           fi
-          curl -f "http://${ALB_DNS_NAME}/health"
+          ALB_HOST="${ALB_DNS_NAME#http://}"
+          ALB_HOST="${ALB_HOST#https://}"
+          ALB_HOST="${ALB_HOST%%/*}"
+          HEALTH_URL="http://${ALB_HOST}/health"
+          echo "Checking ${HEALTH_URL}"
+          for i in $(seq 1 20); do
+            if curl -sf --connect-timeout 10 --max-time 15 "$HEALTH_URL"; then
+              echo ""
+              echo "Health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/20 failed — retry in 30s"
+            sleep 30
+          done
+          echo "Health check failed after ~10 min of retries"
+          exit 1
