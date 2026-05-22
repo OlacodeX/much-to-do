@@ -35,6 +35,9 @@ jobs:
       # -------------------------
       # INSTALL DEPENDENCIES
       # -------------------------
+      - name: Tidy modules
+        run: go mod tidy
+
       - name: Download Dependencies
         run: go mod download
 
