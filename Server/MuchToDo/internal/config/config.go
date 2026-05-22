@@ -23,6 +23,22 @@ type Config struct {
 	AllowedOrigins     []string `mapstructure:"ALLOWED_ORIGINS"`
 }
 
+var configEnvKeys = []string{
+	"PORT",
+	"MONGO_URI",
+	"DB_NAME",
+	"JWT_SECRET_KEY",
+	"JWT_EXPIRATION_HOURS",
+	"ENABLE_CACHE",
+	"REDIS_ADDR",
+	"REDIS_PASSWORD",
+	"LOG_LEVEL",
+	"LOG_FORMAT",
+	"COOKIE_DOMAINS",
+	"SECURE_COOKIE",
+	"ALLOWED_ORIGINS",
+}
+
 // LoadConfig reads configuration from file or environment variables.
 func LoadConfig(path string) (config Config, err error) {
 	viper.AddConfigPath(path)
@@ -30,6 +46,11 @@ func LoadConfig(path string) (config Config, err error) {
 	viper.SetConfigType("env")
 
 	viper.AutomaticEnv()
+	for _, key := range configEnvKeys {
+		if bindErr := viper.BindEnv(key); bindErr != nil {
+			return config, bindErr
+		}
+	}
 
 	// Set default values
 	viper.SetDefault("PORT", "8080")
