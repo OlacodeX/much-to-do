@@ -43,8 +43,3 @@ export ECR_REPOSITORY=... ASG_NAME=...
 
 ./scripts/health-check.sh "$ALB_DNS_NAME" /health
 ```
-
-## Documentation
-
-- [ARCHITECTURE.md](./ARCHITECTURE.md)
-- [RUNBOOK.md](./RUNBOOK.md)
